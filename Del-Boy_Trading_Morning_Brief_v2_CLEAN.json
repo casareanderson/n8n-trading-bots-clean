@@ -1,0 +1,299 @@
+{
+  "name": "Del-Boy Trading Morning Brief v2",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "55 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "f08c6ea6-e1ef-49e6-b6a7-8d938f0dca40",
+      "name": "7:55am Mon-Fri",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/portfolio",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "05ff169d-4ca2-44cc-8d37-3be08b328b5f",
+      "name": "T212 Get Positions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/account/summary",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "13e83057-9aa2-42d3-b7fc-0222fad61568",
+      "name": "T212 Account Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        0,
+        160
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://query1.finance.yahoo.com/v1/finance/search?q=stock+market+news+today&lang=en-US&region=US&newsCount=5",
+        "options": {}
+      },
+      "id": "6667ce73-11f9-47d5-a46d-cb42c6c5f65f",
+      "name": "Yahoo Finance News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const getJson = (name) => { try { return $(name).first().json; } catch (e) { return null; } };\nconst positions = getJson('T212 Get Positions') || [];\nconst summary = getJson('T212 Account Summary') || {};\nconst news = getJson('Yahoo Finance News') || {};\nlet positionsList = '';\nif (Array.isArray(positions) && positions.length > 0) { positions.forEach(function(p) { const pplNum = parseFloat(p.ppl || 0); const cost = parseFloat(p.averagePrice || 0) * parseFloat(p.quantity || 0); const pnlPctNum = cost > 0 ? (pplNum / cost) * 100 : 0; const icon = pplNum >= 0 ? 'UP' : 'DN'; const isUS = (p.ticker || '').indexOf('_US_') !== -1; const ccy = isUS ? '$' : 'GBP'; positionsList += '[' + icon + '] ' + p.ticker + ': ' + ccy + parseFloat(p.currentPrice || 0).toFixed(2) + ' | P&L: GBP ' + pplNum.toFixed(2) + ' (' + pnlPctNum.toFixed(2) + '%)\\n'; }); } else { positionsList = 'Unable to fetch positions - check T212 API credentials'; }\nlet newsHeadlines = '';\ntry { const items = (news && news.news) || []; if (items.length === 0) { newsHeadlines = 'No overnight news available'; } else { items.slice(0, 5).forEach(function(n) { newsHeadlines += '- ' + n.title + '\\n'; }); } } catch (e) { newsHeadlines = 'Unable to fetch news'; }\nconst totalValue = parseFloat((summary && summary.totalValue) || 0).toFixed(2);\nconst cash = parseFloat((summary && summary.cash && summary.cash.availableToTrade) || 0).toFixed(2);\nconst totalPnl = parseFloat((summary && summary.investments && summary.investments.unrealizedProfitLoss) || 0).toFixed(2);\nconst today = new Date().toDateString();\nconst prompt = 'You are Del-Boy, a sharp and witty AI trading assistant analysing a UK ISA portfolio on Trading 212. Today is ' + today + '.\\n\\nPORTFOLIO SUMMARY:\\nTotal Value: GBP ' + totalValue + '\\nCash Available: GBP ' + cash + '\\nOverall P&L: GBP ' + totalPnl + '\\n\\nCURRENT POSITIONS:\\n' + positionsList + '\\nOVERNIGHT NEWS:\\n' + newsHeadlines + '\\nProvide a concise morning brief with:\\n1. TOP 3 positions to watch today and why\\n2. Any positions showing risk signals\\n3. One actionable trade idea\\n4. Overall market sentiment in one sentence\\n\\nKeep it punchy - this is a pre-market brief. No disclaimers needed.';\nreturn [{ json: { prompt: prompt, totalValue: totalValue, cash: cash, totalPnl: totalPnl, positionsList: positionsList } }];"
+      },
+      "id": "db77634a-b730-40d2-817a-af256ac5d82a",
+      "name": "Build Gemma Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        160
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.8.152:8890/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"messages\": [{\"role\": \"user\", \"content\": {{ JSON.stringify($json.prompt) }}}],\n  \"stream\": false,\n  \"temperature\": 0.7,\n  \"max_tokens\": 1000\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "a01f83ee-8019-43d6-811d-7e6551e27d7e",
+      "name": "Ask Gemma - Unsloth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        464,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Gemma response\nconst response = $input.first().json;\nlet analysis = '';\n\ntry {\n  analysis = response?.choices?.[0]?.message?.content || \n             response?.response || \n             response?.message?.content || \n             'Gemma did not return a response - check model is loaded in Unsloth Studio';\n} catch(e) {\n  analysis = 'Error parsing Gemma response: ' + e.message;\n}\n\n// Get portfolio data\nconst portfolio = $('Build Gemma Prompt').first().json;\n\n// Time\nconst now = new Date();\nconst timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });\nconst dateStr = now.toDateString();\n\n// Build Discord embed\nconst discordPayload = {\n  embeds: [\n    {\n      title: \"\ud83d\ude80 Del-Boy's Morning Trading Brief\",\n      description: `Lovely jubbly! Here's your brief for **${dateStr}**`,\n      color: 3066993,\n      fields: [\n        {\n          name: \"\ud83d\udcb0 Portfolio Snapshot\",\n          value: `**Total Value:** \u00a3${portfolio.totalValue}\\n**Cash:** \u00a3${portfolio.cash}\\n**Overall P&L:** \u00a3${portfolio.totalPnl}`,\n          inline: false\n        },\n        {\n          name: \"\ud83e\udd16 Gemma's Analysis\",\n          value: analysis.substring(0, 1024),\n          inline: false\n        },\n        {\n          name: \"\u23f0 Key Times Today (BST)\",\n          value: \"\ud83d\udcc8 Pre-market: 8:00am\\n\ud83c\uddfa\ud83c\uddf8 US Opens: 2:30pm\\n\ud83d\udcde Check for earnings calls\",\n          inline: false\n        }\n      ],\n      footer: {\n        text: `Generated ${timeStr} by Gemma on Unsloth Studio | Not financial advice`\n      },\n      timestamp: now.toISOString()\n    }\n  ]\n};\n\nreturn [{ json: discordPayload }];"
+      },
+      "id": "cd9ff557-8481-4a83-bdc1-942f980fdb9a",
+      "name": "Format Discord Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        160
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "8b053b17-e849-4192-a344-a450ddbde460",
+      "name": "Del-Boy Discord Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        912,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const timestamp = new Date().toISOString();\nreturn [{ json: { success: true, timestamp, message: 'Morning brief delivered by Del-Boy! Lovely jubbly!' } }];"
+      },
+      "id": "516441af-ef25-4f45-9162-ce5f976f899f",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        160
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "7:55am Mon-Fri": {
+      "main": [
+        [
+          {
+            "node": "T212 Get Positions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "T212 Account Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Yahoo Finance News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "T212 Get Positions": {
+      "main": [
+        [
+          {
+            "node": "Build Gemma Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemma Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ask Gemma - Unsloth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Gemma - Unsloth": {
+      "main": [
+        [
+          {
+            "node": "Format Discord Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Discord Message": {
+      "main": [
+        [
+          {
+            "node": "Del-Boy Discord Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Del-Boy Discord Post": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "T212 Account Summary": {
+      "main": [
+        [
+          {
+            "node": "Build Gemma Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Yahoo Finance News": {
+      "main": [
+        [
+          {
+            "node": "Build Gemma Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9329c73b-e4d1-4582-8f49-4b0dfb257e47",
+  "meta": {
+    "instanceId": "REDACTED"
+  },
+  "id": "DbMQ5TGYD3cvdcrU",
+  "tags": []
+}

@@ -1,0 +1,1024 @@
+{
+  "name": "Trading212 AI Autonomous Trader v2",
+  "nodes": [
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gemma4:latest",
+          "mode": "list",
+          "cachedResultName": "gemma4:latest"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=const d = $input.item.json;\nconst cash = d.cash || 0;\nconst portfolio = d.portfolio || [];\nconst bubbleScore = d.bubbleScore || 0;\nconst riskPhase = d.riskPhase || 'Normal \ud83d\udfe2';\nconst positionMultiplier = d.positionMultiplier || 1;\n\n// Dynamically build owned tickers list\nconst ownedTickers = portfolio.map(p => p.ticker).join(', ');\n\nconst bubbleWarning = bubbleScore >= 13 ? 'CRITICAL: Do NOT trade today'\n  : bubbleScore > 4 ? 'ELEVATED RISK: Reduce position sizes by ' + Math.round((1 - positionMultiplier) * 100) + '%'\n  : 'Normal market conditions';\n\n// DYNAMIC MATH: Figure out how many trades we can make based on cash\nlet targetInstrumentCount = 1;\nif (cash >= 30) targetInstrumentCount = 2;\nif (cash >= 60) targetInstrumentCount = 3;\n\nconst systemPrompt = `You are a JSON-only trading bot for a UK ISA targeting annual growth. Output ONLY a JSON object starting with { and ending with }. No prose, no explanation.\n\nVERIFIED T212 UK TICKERS:\nETFs: VUAGl_EQ, ISFl_EQ, SWLDl_EQ, VFEMl_EQ, VERXl_EQ, EQQQl_EQ, INRG_EQ, VHYLl_EQ, IUITl_EQ\nTech/Growth: AAPL_US_EQ, MSFT_US_EQ, GOOGL_US_EQ, AMZN_US_EQ, TSLA_US_EQ, META_US_EQ, NVDA_US_EQ, PLTR_US_EQ, AMD_US_EQ, SOFI_US_EQ, IONQ_US_EQ, RKLB_US_EQ, HOOD_US_EQ, COIN_US_EQ, AFRM_US_EQ, UBER_US_EQ, CRWD_US_EQ, NET_US_EQ\nValue/Bluechip: JPM_US_EQ, JNJ_US_EQ, V_US_EQ, MA_US_EQ, WMT_US_EQ, KO_US_EQ\n\nNEVER use: VUSAl_EQ, SCHD, IAU, GLD, QQQ, IVV\n\nALREADY IN PORTFOLIO - DO NOT BUY MORE OF THESE: ${ownedTickers}\nPRIORITISE instruments NOT already in portfolio.\nBase your picks heavily on the provided MARKET RESEARCH, selecting from the Verified Tickers list above.\n\nRULES:\n1. Total trades MUST NOT exceed \u00a3${cash}\n2. Use \"amount\" field not \"quantity\"\n3. Minimum \u00a31.50 per trade\n4. Pick exactly ${targetInstrumentCount} instrument(s).\n5. NEVER repeat a ticker already in portfolio\n\nFORMAT: {\"trades\":[{\"ticker\":\"ISFl_EQ\",\"amount\":5.00,\"reason\":\"reason here\",\"isDip\":false}],\"summary\":\"brief summary\"}`;\n\nconst userPrompt = `ETF RESEARCH: ${d.etfContext || 'none'}\nGROWTH STOCKS: ${d.growthContext || 'none'}\nMARKET OUTLOOK: ${d.marketContext || 'none'}\nDIP OPPORTUNITIES: ${d.dipContext || 'none'}\nPORTFOLIO: ${JSON.stringify(portfolio)}\nCASH: \u00a3${cash}\nRISK: ${riskPhase} bubble score ${bubbleScore}/15 - ${bubbleWarning}\n\nOutput JSON only. Total trades must not exceed \u00a3${cash}. Do NOT buy: ${ownedTickers}`;\n\nreturn [{json: {cash, portfolio, systemPrompt, userPrompt}}];"
+            }
+          ]
+        },
+        "simplify": false,
+        "options": {
+          "temperature": 0,
+          "format": "json"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        12272,
+        1280
+      ],
+      "id": "abb311f5-b690-4122-9fbc-8d645e66cbbd",
+      "name": "Message a model",
+      "alwaysOutputData": true,
+      "credentials": {
+        "ollamaApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "64593994-7bc7-4bbc-8f07-64c18ac4c761",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        8624,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "1da39df3-7927-427b-a9a3-761b0f3d887f",
+      "name": "8:30am Weekdays",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        8624,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "83824510-7e82-47c8-bba8-b7dedee441e4",
+      "name": "4:00pm Weekdays",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        8624,
+        1792
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/account/cash",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "4def9c1d-a1da-4649-afdc-27e0c515a386",
+      "name": "GET Cash Balance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8848,
+        1600
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cash-check",
+              "leftValue": "={{ $json.free }}",
+              "rightValue": 5,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8941bd17-d7b8-49fb-b7d7-ef2f8459fde3",
+      "name": "Cash > \u00a310?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        9072,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/portfolio",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "86a78e0a-98f6-4400-9a92-90e80c9fd63f",
+      "name": "GET Portfolio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9296,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"urls\":[\"https://etfdb.com/etfs/\",\"https://www.justetf.com/en/find-etf.html\"],\"crawler_config\":{\"type\":\"CrawlerRunConfig\",\"params\":{\"cache_mode\":\"bypass\"}}}",
+        "options": {}
+      },
+      "id": "360f4079-5210-4251-bdb6-1edcde143aaf",
+      "name": "Tavily ETF Research",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9552,
+        1648
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cash = $('GET Cash Balance').item.json.free;\nconst portfolio = $('GET Portfolio').item.json;\nconst r = $input.item.json;\nconst extract = (x) => (typeof x?.markdown === 'string' ? x.markdown : (x?.markdown?.raw_markdown || x?.markdown?.fit_markdown || x?.html || ''));\nconst etfContext = ((r.results || []).map(extract).join('\\n\\n').trim() || 'No ETF data').slice(0, 4000);\nreturn [{json: {cash, portfolio, etfContext}}];"
+      },
+      "id": "204b14f6-df5e-473e-8e36-e6a6dd6b798b",
+      "name": "Store ETF Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9728,
+        1600
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"urls\":[\"https://community.trading212.com/c/investing/stocks-etfs-requests/16\",\"https://www.trading212.com/trading-instruments/invest\"],\"crawler_config\":{\"type\":\"CrawlerRunConfig\",\"params\":{\"cache_mode\":\"bypass\"}}}",
+        "options": {}
+      },
+      "id": "92513fb5-874c-4dce-9665-0fdfcb578c7c",
+      "name": "Tavily Growth Stocks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9952,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Store ETF Context').item.json;\nconst r = $input.item.json;\nconst extract = (x) => (typeof x?.markdown === 'string' ? x.markdown : (x?.markdown?.raw_markdown || x?.markdown?.fit_markdown || x?.html || ''));\nconst growthContext = ((r.results || []).map(extract).join('\\n\\n').trim() || 'No growth data').slice(0, 4000);\nreturn [{json: {...prev, growthContext}}];"
+      },
+      "id": "f77e5a1c-267e-486c-9e87-b8235a290b85",
+      "name": "Store Growth Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10176,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"urls\":[\"https://tradingeconomics.com/indicators\"],\"crawler_config\":{\"type\":\"CrawlerRunConfig\",\"params\":{\"cache_mode\":\"bypass\"}}}",
+        "options": {}
+      },
+      "id": "879da613-c603-4f65-bb98-7cfefff534ea",
+      "name": "Tavily Market Outlook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10384,
+        1600
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Store Growth Context').item.json;\nconst r = $input.item.json;\nconst extract = (x) => (typeof x?.markdown === 'string' ? x.markdown : (x?.markdown?.raw_markdown || x?.markdown?.fit_markdown || x?.html || ''));\nconst marketContext = ((r.results || []).map(extract).join('\\n\\n').trim() || 'No market data').slice(0, 4000);\nreturn [{json: {...prev, marketContext}}];"
+      },
+      "id": "edc61523-04e9-4081-8a7c-72c845717a96",
+      "name": "Store Market Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10608,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"urls\":[\"https://tradingeconomics.com/indicators\",\"https://www.justetf.com/en/find-etf.html\"],\"crawler_config\":{\"type\":\"CrawlerRunConfig\",\"params\":{\"cache_mode\":\"bypass\"}}}",
+        "options": {}
+      },
+      "id": "bddce7a6-be08-4869-a4fd-e20c0b25921d",
+      "name": "Tavily Dip Scanner",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10832,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cashData = $('GET Cash Balance').item.json;\nconst portfolioItems = $('GET Portfolio').all ? $('GET Portfolio').all().map(i => i.json) : [];\nconst etfContext = $('Store ETF Context').item.json.etfContext || '';\nconst growthContext = $('Store Growth Context').item.json.growthContext || '';\nconst marketContext = $('Store Market Context').item.json.marketContext || '';\nconst dipRaw = $('Tavily Dip Scanner').item.json;\n\nconst extract = (x) => (typeof x?.markdown === 'string' ? x.markdown : (x?.markdown?.raw_markdown || x?.markdown?.fit_markdown || x?.html || ''));\nconst dipContext = ((dipRaw.results || []).map(extract).join('\\n\\n').trim() || '').slice(0, 4000);\n\nconst cash = cashData.free || 0;\nconst portfolio = portfolioItems.filter(p => p && p.ticker);\n\nreturn [{\n    json: {\n        cash,\n        portfolio,\n        etfContext,\n        growthContext,\n        marketContext,\n        dipContext\n    }\n}];"
+      },
+      "id": "23e23900-fe98-4d99-bb20-fa2cc899236e",
+      "name": "Combine All Research",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11056,
+        1600
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.item.json;\nconst cash = d.cash || 0;\nconst portfolio = d.portfolio || [];\nconst bubbleScore = d.bubbleScore || 0;\nconst riskPhase = d.riskPhase || 'Normal \ud83d\udfe2';\nconst positionMultiplier = d.positionMultiplier || 1;\n\n// Dynamically build owned tickers list\nconst ownedTickers = portfolio.map(p => p.ticker).join(', ');\n\n// Count how many ETFs vs growth stocks already in portfolio\nconst etfTickers = ['VUAGl_EQ','ISFl_EQ','SWLDl_EQ','VFEMl_EQ','VERXl_EQ','EQQQl_EQ'];\nconst growthTickers = ['PLTR_US_EQ','AMD_US_EQ','SOFI_US_EQ','IONQ_US_EQ','RKLB_US_EQ','HOOD_US_EQ','COIN_US_EQ','AFRM_US_EQ','TSLA_US_EQ','NVDA_US_EQ'];\nconst ownedList = portfolio.map(p => p.ticker);\nconst etfsOwned = ownedList.filter(t => etfTickers.includes(t)).length;\nconst growthOwned = ownedList.filter(t => growthTickers.includes(t)).length;\n\n// Bias instruction: push toward under-represented category\nlet balanceInstruction;\nif (etfsOwned > growthOwned + 1) {\n  balanceInstruction = 'IMPORTANT: Portfolio is ETF-heavy. You MUST include at least 2 growth stocks in your trades today. Lean toward PLTR_US_EQ, AMD_US_EQ, SOFI_US_EQ, IONQ_US_EQ, RKLB_US_EQ, HOOD_US_EQ, COIN_US_EQ, AFRM_US_EQ.';\n} else if (growthOwned > etfsOwned + 1) {\n  balanceInstruction = 'IMPORTANT: Portfolio is growth-heavy. You MUST include at least 1 ETF for stability. Lean toward ISFl_EQ, SWLDl_EQ, VFEMl_EQ, EQQQl_EQ.';\n} else {\n  balanceInstruction = 'AIM for a MIX: include at least 1 ETF and at least 1 growth stock in your trades. Do not pick all ETFs or all growth stocks.';\n}\n\nconst bubbleWarning = bubbleScore >= 13 ? 'CRITICAL: Do NOT trade today'\n  : bubbleScore > 4 ? 'ELEVATED RISK: Reduce position sizes by ' + Math.round((1 - positionMultiplier) * 100) + '%'\n  : 'Normal market conditions';\n\nconst systemPrompt = `You are a JSON-only trading bot for a UK ISA targeting 15% annual growth. Output ONLY a JSON object starting with { and ending with }. No prose, no explanation.\n\nVERIFIED T212 TICKERS (use ONLY these):\nGrowth stocks: PLTR_US_EQ, AMD_US_EQ, SOFI_US_EQ, IONQ_US_EQ, RKLB_US_EQ, HOOD_US_EQ, COIN_US_EQ, AFRM_US_EQ, TSLA_US_EQ, NVDA_US_EQ\nETFs (stability/diversification): ISFl_EQ, SWLDl_EQ, VFEMl_EQ, VERXl_EQ, EQQQl_EQ, VUAGl_EQ\n\nNEVER use: VUSAl_EQ, SCHD, IAU, GLD, QQQ, IVV\n\nALREADY IN PORTFOLIO - DO NOT BUY MORE OF THESE: ${ownedTickers}\n\n${balanceInstruction}\n\nRULES:\n1. Total trades MUST NOT exceed \u00a3${cash}\n2. Use \"amount\" field not \"quantity\"\n3. Max 40% of cash per trade\n4. Minimum \u00a35 per trade\n5. Pick 2-3 different instruments\n6. NEVER repeat a ticker already in portfolio\n7. MUST pick at least 1 growth stock (PLTR_US_EQ, AMD_US_EQ, SOFI_US_EQ, IONQ_US_EQ, RKLB_US_EQ, HOOD_US_EQ, COIN_US_EQ, AFRM_US_EQ) unless ALL are already owned\n8. Allocate based on research signals \u2014 favour momentum, dip opportunities and sentiment\n\nFORMAT (example uses growth stock intentionally): {\"trades\":[{\"ticker\":\"PLTR_US_EQ\",\"amount\":50.00,\"reason\":\"reason here\",\"isDip\":false}],\"summary\":\"brief summary\"}`;\n\nconst userPrompt = `ETF RESEARCH: ${d.etfContext || 'none'}\nGROWTH STOCKS: ${d.growthContext || 'none'}\nMARKET OUTLOOK: ${d.marketContext || 'none'}\nDIP OPPORTUNITIES: ${d.dipContext || 'none'}\nPORTFOLIO: ${JSON.stringify(portfolio)}\nCASH: \u00a3${cash}\nRISK: ${riskPhase} bubble score ${bubbleScore}/15 - ${bubbleWarning}\nECONOMIC: ${d.econContext || 'No major events'}\nPORTFOLIO BALANCE: ${etfsOwned} ETFs vs ${growthOwned} growth stocks owned.\n\nOutput JSON only. Total trades must not exceed \u00a3${cash}. Do NOT buy: ${ownedTickers}`;\n\nreturn [{json: {cash, portfolio, systemPrompt, userPrompt}}];"
+      },
+      "id": "dfbf229a-49c6-456d-958e-bb7d6b07f1ac",
+      "name": "Build Ollama Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11840,
+        1568
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Parse Trades - robust extractor for LLM JSON responses (Run Once for Each Item)\nconst raw = String($input.item.json.message?.content || $input.item.json.content || \"\");\nconst cash = Number($(\"Build Ollama Prompt\").item.json.cash) || 0;\n\nfunction safeOut(extra) {\n  const base = { trades: [], summary: \"\", cash: cash, tradeCount: 0, hasDipTrades: false, parseError: null, rawPreview: raw.substring(0, 300) };\n  return { json: Object.assign(base, extra || {}) };\n}\n\nif (!raw || !raw.trim()) { return safeOut({ parseError: \"Empty LLM response\" }); }\n\n// 1. Strip markdown code fences only\nlet cleaned = raw\n  .replace(/```(?:json|JSON)?\\s*/g, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\n// 2. String-aware sanitisation: strip JS comments, fix bad escape chars, drop trailing commas\nfunction sanitizeJsonish(s) {\n  let out = \"\";\n  let inStr = false, strCh = \"\", esc = false;\n  for (let i = 0; i < s.length; i++) {\n    const ch = s[i];\n    const next = s[i + 1];\n    if (esc) {\n      // We just consumed the backslash. Check if this is a valid JSON escape.\n      const validEsc = [\"\\\"\", \"\\\\\", \"/\", \"b\", \"f\", \"n\", \"r\", \"t\", \"u\"];\n      if (validEsc.indexOf(ch) === -1) {\n        // Drop the backslash, keep the character literally.\n        // Remove the backslash that we already added to out.\n        if (out.length > 0 && out[out.length - 1] === \"\\\\\") {\n          out = out.slice(0, -1);\n        }\n        out += ch;\n      } else {\n        out += ch;\n      }\n      esc = false;\n      continue;\n    }\n    if (inStr) {\n      if (ch === \"\\\\\") { out += ch; esc = true; continue; }\n      if (ch === strCh) { inStr = false; }\n      // Newlines/tabs inside strings break JSON.parse - escape them.\n      if (ch === \"\\n\") { out += \"\\\\n\"; continue; }\n      if (ch === \"\\r\") { out += \"\\\\r\"; continue; }\n      if (ch === \"\\t\") { out += \"\\\\t\"; continue; }\n      out += ch;\n      continue;\n    }\n    if (ch === \"\\\"\" || ch === \"'\") { inStr = true; strCh = ch; out += ch; continue; }\n    // Line comment outside string\n    if (ch === \"/\" && next === \"/\") {\n      while (i < s.length && s[i] !== \"\\n\") i++;\n      continue;\n    }\n    // Block comment outside string\n    if (ch === \"/\" && next === \"*\") {\n      i += 2;\n      while (i < s.length - 1 && !(s[i] === \"*\" && s[i + 1] === \"/\")) i++;\n      i++;\n      continue;\n    }\n    out += ch;\n  }\n  // Convert single-quoted strings to double-quoted (best-effort)\n  // Skipped: risky to do generally. Trailing comma cleanup:\n  out = out.replace(/,\\s*([}\\]])/g, \"$1\");\n  return out;\n}\ncleaned = sanitizeJsonish(cleaned);\n\n// 3. Extract first balanced { } or [ ] block (string-aware)\nfunction extractBalanced(str, open, close) {\n  const startIdx = str.indexOf(open);\n  if (startIdx === -1) return null;\n  let depth = 0, inStr = false, strCh = \"\", esc = false;\n  for (let i = startIdx; i < str.length; i++) {\n    const ch = str[i];\n    if (esc) { esc = false; continue; }\n    if (ch === \"\\\\\") { esc = true; continue; }\n    if (inStr) { if (ch === strCh) inStr = false; continue; }\n    if (ch === \"\\\"\" || ch === \"'\") { inStr = true; strCh = ch; continue; }\n    if (ch === open) depth++;\n    else if (ch === close) { depth--; if (depth === 0) return str.substring(startIdx, i + 1); }\n  }\n  return null;\n}\n\nlet parsed = null;\nlet parseError = null;\nconst candidates = [];\nconst objBlock = extractBalanced(cleaned, \"{\", \"}\");\nconst arrBlock = extractBalanced(cleaned, \"[\", \"]\");\nif (objBlock) candidates.push(objBlock);\nif (arrBlock) candidates.push(arrBlock);\ncandidates.push(cleaned);\n\nfor (const c of candidates) {\n  try { parsed = JSON.parse(c); parseError = null; break; }\n  catch (e) { parseError = e.message; }\n}\n\nif (parsed === null || parsed === undefined) {\n  return safeOut({ parseError: \"JSON parse failed: \" + parseError });\n}\n\n// 4. Normalise wrappers: {trades:[]}, {portfolio:[...]}, {json:{...}}, [{json:{...}}], [trade,trade]\nfunction unwrap(p) {\n  if (Array.isArray(p)) {\n    if (p.length === 0) return {};\n    if (p[0] && typeof p[0] === \"object\" && p[0].json && typeof p[0].json === \"object\") return p[0].json;\n    if (p[0] && typeof p[0] === \"object\" && (p[0].ticker || p[0].symbol)) return { trades: p };\n    return (p[0] && typeof p[0] === \"object\") ? p[0] : {};\n  }\n  if (p && typeof p === \"object\") {\n    if (p.json && typeof p.json === \"object\" && !p.trades && !p.portfolio) return p.json;\n    return p;\n  }\n  return {};\n}\n\nconst obj = unwrap(parsed);\n\n// Look for trades under several possible keys the LLM might use\nconst tradeKeys = [\"trades\", \"orders\", \"actions\", \"buyOrders\", \"buys\"];\nlet rawTrades = [];\nfor (const k of tradeKeys) {\n  if (Array.isArray(obj[k])) { rawTrades = obj[k]; break; }\n}\n// portfolio: only treat as trades if items have ticker/symbol AND amount/totalCost\nif (rawTrades.length === 0 && Array.isArray(obj.portfolio)) {\n  const looksLikeTrades = obj.portfolio.every(p => p && typeof p === \"object\" && (p.ticker || p.symbol) && (p.amount != null || p.totalCost != null || p.value != null));\n  if (looksLikeTrades) rawTrades = obj.portfolio;\n}\n\nconst trades = rawTrades\n  .filter(t => t && typeof t === \"object\")\n  .map(t => {\n    const ticker = String(t.ticker || t.symbol || \"\").trim();\n    const amt = parseFloat(t.amount != null ? t.amount : (t.totalCost != null ? t.totalCost : (t.value != null ? t.value : 0)));\n    return {\n      ticker: ticker,\n      amount: isFinite(amt) ? amt : 0,\n      reason: String(t.reason || t.rationale || \"AI trade decision\"),\n      isDip: Boolean(t.isDip)\n    };\n  })\n  .filter(t => {\n    if (!t.ticker) return false;\n    if (!(t.amount > 0)) return false;\n    if (t.amount > cash) return false;\n    return t.ticker.endsWith(\"_US_EQ\") || t.ticker.endsWith(\"l_EQ\") || t.ticker.endsWith(\"_EQ\");\n  });\n\nreturn {\n  json: {\n    trades: trades,\n    summary: String(obj.summary || obj.note || \"\"),\n    cash: Number(obj.cash) || cash,\n    tradeCount: trades.length,\n    hasDipTrades: trades.some(t => t.isDip),\n    parseError: null\n  }\n};"
+      },
+      "id": "22bfe121-fd95-43b8-b5f6-e09effce9684",
+      "name": "Parse Trades",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12592,
+        1600
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "=\ud83d\udcca **Trading Bot: Trades Incoming**{{ $json.hasDipTrades ? ' \ud83d\udcc9 Dip spotted \u2014 buying it!' : '' }}\n{{ $json.summary }}\n\n**Planned trades ({{ $json.tradeCount }}):**\n{{ $json.trades.map(t => `\u2022 ${t.ticker}: \u00a3${t.amount}${t.isDip ? ' \ud83c\udfaf DIP BUY' : ''} \u2014 ${t.reason}`).join('\\n') }}\n\n**Available cash:** \u00a3{{ $json.cash }}\n________________",
+        "options": {}
+      },
+      "id": "a2733f75-1ef9-4f53-b3c2-07a56afbe128",
+      "name": "Discord: Notify Trades",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        13088,
+        1280
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "trades",
+        "options": {}
+      },
+      "id": "c226bf63-d55f-4efe-9b76-6e00bd68732a",
+      "name": "Split Trades",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        13024,
+        1600
+      ],
+      "executeOnce": false,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ticker = $json.ticker || \"\"; \nconst amount = $json.amount || 0;\nconst reason = $json.reason || \"No reason provided\";\nconst isDip = $json.isDip || false;\n\nif (!ticker) {\n  return [{ json: { error: \"Ticker was missing from input\", ticker, amount, reason } }];\n}\n\nlet yahooSymbol;\n\n// Case 1: US Stocks (e.g. AAPL_US_EQ -> AAPL)\nif (ticker.includes('_US_EQ')) {\n  yahooSymbol = ticker.replace('_US_EQ', '');\n} \n// Case 2: UK Stocks/ETFs (e.g. VUAGl_EQ -> VUAG.L)\nelse {\n  // Strip off the _EQ\n  let base = ticker.replace('_EQ', '');\n  \n  // Trading212 often adds a lowercase 'l' (for London) or 'x' to the end of ETFs.\n  // We need to strip that lowercase letter off to get the real base ticker.\n  if (base.match(/[a-z]$/)) {\n    base = base.slice(0, -1);\n  }\n  \n  // Append .L for London Stock Exchange\n  yahooSymbol = base + '.L';\n}\n\nreturn [{\n  json: {\n    ticker,\n    amount,\n    reason,\n    isDip,\n    yahooSymbol\n  }\n}];"
+      },
+      "id": "9806a943-3055-42d1-b652-c0d71d5520de",
+      "name": "Map Ticker to Yahoo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13248,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v8/finance/chart/{{  $json.yahooSymbol }}?interval=1d&range=5d",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1071089d-e512-4485-b4dd-81d4b6d53ae2",
+      "name": "Get Live Price (Yahoo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        13472,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "try {\n    const chartData = $json.chart.result[0];\n    const meta = chartData.meta;\n    const price = meta.regularMarketPrice;\n\n    const upstream = $('Map Ticker to Yahoo').item.json;\n    const ticker = upstream.ticker;\n    const amount = Number(upstream.amount) || 0;\n\n    if (!ticker) throw new Error('Missing ticker from Map Ticker to Yahoo');\n    if (!price || price <= 0) throw new Error('Invalid price from Yahoo response');\n    if (amount <= 0) throw new Error('Amount must be greater than 0');\n\n    const rawQty = amount / price;\n    const quantity = Math.round(rawQty * 10000) / 10000;\n\n    return {\n          ticker,\n          quantity,\n          price,\n          amount,\n          currency: meta.currency,\n          exchange: meta.exchangeName,\n          yahooSymbol: meta.symbol,\n          isDip: upstream.isDip,\n          reason: upstream.reason,\n          serverTime: new Date().toISOString()\n    };\n} catch (error) {\n    return {\n          error: 'Failed to calculate quantity: ' + error.message,\n          rawError: String(error)\n    };\n}"
+      },
+      "id": "e00d36d0-14f1-4457-8108-d79530e4f9af",
+      "name": "Calculate Quantity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13696,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://live.trading212.com/api/v0/equity/orders/market",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"ticker\": \"{{ $json.ticker }}\", \"quantity\": {{  $json.quantity }} }",
+        "options": {}
+      },
+      "id": "a33cb698-17fd-460c-863f-d7fb674f8c57",
+      "name": "Place Market Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        13904,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "=\ud83d\udce6 **order(s) placed**\n\ud83d\udd50 {{ new Date().toLocaleString('en-GB') }}\n\n=\u2705 **Trades Executed Successfully**\n________________\n\n{{ $('Calculate Quantity').item.json.isDip ? '\ud83c\udfaf **DIP BUY**' : '\ud83d\udcc8 **Rebalance**' }} \u2014 **{{ $('Calculate Quantity').item.json.ticker }}**\n{{ $('Calculate Quantity').item.json.quantity }} shares @ \u00a3{{ $('Calculate Quantity').item.json.price.toFixed(2) }}\nTotal: \u00a3{{ $('Calculate Quantity').item.json.amount }}\n\n_{{ $('Calculate Quantity').item.json.reason }}_",
+        "options": {}
+      },
+      "id": "121ad413-adbc-4e27-8673-da134f1a70e7",
+      "name": "Discord: Confirm Execution",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        14128,
+        1600
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"urls\":[\"https://tradingeconomics.com/indicators\"],\"crawler_config\":{\"type\":\"CrawlerRunConfig\",\"params\":{\"cache_mode\":\"bypass\"}}}",
+        "options": {}
+      },
+      "id": "ebc5f860-3510-42e6-ab42-94abff2da321",
+      "name": "Bubble Detector",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        11264,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cashData = $('GET Cash Balance').item.json;\nconst portfolioItems = $('GET Portfolio').all ? $('GET Portfolio').all().map(i => i.json) : [];\nconst etfContext = $('Store ETF Context').item.json.etfContext || '';\nconst growthContext = $('Store Growth Context').item.json.growthContext || '';\nconst marketContext = $('Store Market Context').item.json.marketContext || '';\nconst dipRaw = $('Tavily Dip Scanner').item.json;\n\nconst extract = (x) => (typeof x?.markdown === 'string' ? x.markdown : (x?.markdown?.raw_markdown || x?.markdown?.fit_markdown || x?.html || ''));\nconst dipContext = ((dipRaw.results || []).map(extract).join('\\n\\n').trim() || '').slice(0, 4000);\n\nconst cash = cashData.free || 0;\nconst portfolio = portfolioItems.filter(p => p && p.ticker);\n\nreturn [\n  {\n    json: {\n      cash,\n      portfolio,\n      etfContext,\n      growthContext,\n      marketContext,\n      dipContext\n    }\n  }\n];"
+      },
+      "id": "17e413d1-56aa-4f08-a553-57a7ac38ec0a",
+      "name": "Process Bubble Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11488,
+        1600
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "command": "cat /home/c1-pop/mounts/zimablade-trading/isa_trades.csv 2>/dev/null | tail -30"
+      },
+      "id": "30f44277-cf9d-40da-bcf4-89dfd148a44f",
+      "name": "Read ISA Trade Log",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        9296,
+        1792
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cashData = $('GET Cash Balance').item.json;\nconst portfolioData = $('GET Portfolio').all ? $('GET Portfolio').all().map(i=>i.json) : [];\n\nlet tradeLog = '';\ntry { tradeLog = $('Read ISA Trade Log').item.json.stdout || ''; } catch(e) {}\n\nconst lines = tradeLog.split('\\n').filter(l => l.includes(','));\nconst trades = lines.map(l => {\n  const p = l.split(',');\n  return {date: p[0], ticker: p[1], action: p[2], pnl: parseFloat(p[4])||0};\n}).filter(t => t.action === 'BUY');\n\nconst today = new Date().toISOString().split('T')[0];\nconst todayTrades = trades.filter(t => t.date && t.date.startsWith(today));\n\nlet circuitBreakerTriggered = false;\nlet pauseReason = '';\n\n// Daily trade limit \u2014 max 4 buys per day for ISA\nif(todayTrades.length >= 4) {\n  circuitBreakerTriggered = true;\n  pauseReason = 'DAILY LIMIT: ' + todayTrades.length + ' trades placed today';\n}\n\n// Cash too low\nconst cash = cashData.free || 0;\nif(cash < 5) {\n  circuitBreakerTriggered = true;\n  pauseReason = 'INSUFFICIENT CASH: \u00a3' + cash.toFixed(2) + ' available';\n}\n\nreturn [{json: {\n  cash,\n  portfolio: portfolioData,\n  circuitBreakerTriggered,\n  pauseReason,\n  todayTradeCount: todayTrades.length\n}}];"
+      },
+      "id": "81cd1621-3b33-4b2c-8dce-e4f13754e2c1",
+      "name": "ISA Circuit Breaker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9504,
+        1792
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cb-ok",
+              "leftValue": "={{ $json.pauseReason }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "87171d0c-7d90-47df-a81c-4af3ff9915d5",
+      "name": "ISA Circuit Breaker OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        9728,
+        1792
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "=\ud83d\udea8 **ISA BOT \u2014 CIRCUIT BREAKER**\n\ud83d\udd50 {{ new Date().toLocaleString('en-GB') }}\n\n\u26d4 {{ $json.pauseReason }}\n\n_Trading paused \u2014 manual review required_",
+        "options": {}
+      },
+      "id": "83dd4ada-6d3d-4e5d-b079-82a4186f270b",
+      "name": "Discord: ISA Circuit Breaker",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        9952,
+        1904
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "echo \"{{ new Date().toISOString() }},{{ $('Calculate Quantity').item.json.ticker }},BUY,{{ $('Calculate Quantity').item.json.price }},{{ $('Calculate Quantity').item.json.amount }},{{ $('Calculate Quantity').item.json.quantity }}\" >> /home/c1-pop/mounts/zimablade-trading/isa_trades.csv"
+      },
+      "id": "c8bd6bc1-4f06-4aca-a0bc-29a74c170036",
+      "name": "Log ISA Trade",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        13440,
+        1952
+      ]
+    }
+  ],
+  "pinData": {
+    "Manual Trigger": [
+      {
+        "json": {},
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Parse Trades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "GET Cash Balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8:30am Weekdays": {
+      "main": [
+        [
+          {
+            "node": "GET Cash Balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4:00pm Weekdays": {
+      "main": [
+        [
+          {
+            "node": "GET Cash Balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Cash Balance": {
+      "main": [
+        [
+          {
+            "node": "Cash > \u00a310?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cash > \u00a310?": {
+      "main": [
+        [
+          {
+            "node": "GET Portfolio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Portfolio": {
+      "main": [
+        [
+          {
+            "node": "Read ISA Trade Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily ETF Research": {
+      "main": [
+        [
+          {
+            "node": "Store ETF Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store ETF Context": {
+      "main": [
+        [
+          {
+            "node": "Tavily Growth Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Growth Stocks": {
+      "main": [
+        [
+          {
+            "node": "Store Growth Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Growth Context": {
+      "main": [
+        [
+          {
+            "node": "Tavily Market Outlook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Market Outlook": {
+      "main": [
+        [
+          {
+            "node": "Store Market Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Market Context": {
+      "main": [
+        [
+          {
+            "node": "Tavily Dip Scanner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Dip Scanner": {
+      "main": [
+        [
+          {
+            "node": "Combine All Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine All Research": {
+      "main": [
+        [
+          {
+            "node": "Bubble Detector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Trades": {
+      "main": [
+        [
+          {
+            "node": "Split Trades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Notify Trades": {
+      "main": [
+        [
+          {
+            "node": "Split Trades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Trades": {
+      "main": [
+        [
+          {
+            "node": "Map Ticker to Yahoo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Ticker to Yahoo": {
+      "main": [
+        [
+          {
+            "node": "Get Live Price (Yahoo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Live Price (Yahoo)": {
+      "main": [
+        [
+          {
+            "node": "Calculate Quantity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Quantity": {
+      "main": [
+        [
+          {
+            "node": "Place Market Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Place Market Order": {
+      "main": [
+        [
+          {
+            "node": "Discord: Confirm Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bubble Detector": {
+      "main": [
+        [
+          {
+            "node": "Process Bubble Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Bubble Score": {
+      "main": [
+        [
+          {
+            "node": "Build Ollama Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ISA Trade Log": {
+      "main": [
+        [
+          {
+            "node": "ISA Circuit Breaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ISA Circuit Breaker": {
+      "main": [
+        [
+          {
+            "node": "ISA Circuit Breaker OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ISA Circuit Breaker OK?": {
+      "main": [
+        [
+          {
+            "node": "Tavily ETF Research",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord: ISA Circuit Breaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Confirm Execution": {
+      "main": [
+        [
+          {
+            "node": "Log ISA Trade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ollama Prompt": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "702231ba-57bc-4da9-a282-bbebb789ad1d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "REDACTED"
+  },
+  "id": "mxro2mL2ImEuiU5B",
+  "tags": []
+}
