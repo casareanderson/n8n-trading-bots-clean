@@ -1,0 +1,1571 @@
+{
+  "name": "Swing Bot v2 \u2014 T212 Demo (\u00a320/day target)",
+  "nodes": [
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gemma4:latest",
+          "mode": "list",
+          "cachedResultName": "gemma4:latest"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.systemPrompt }}\n\n{{  $json.userPrompt }}"
+            }
+          ]
+        },
+        "options": {
+          "num_thread": 8
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        6128,
+        4624
+      ],
+      "id": "c9c8bb64-0249-40d8-9061-eb8108be7155",
+      "name": "Message a model1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,10,11,12,13,14,15 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "93838477-f9e8-48ab-a4cf-4dd56591318d",
+      "name": "Every Hour Market Hours1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        3696,
+        4976
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "f3a47571-83bf-4e00-9496-92911152d6ec",
+      "name": "4pm Daily P&L Report1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        3696,
+        5584
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/account/cash",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "155dba93-367b-40f8-88e3-297937151f93",
+      "name": "GET Demo Cash1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3920,
+        5088
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/portfolio",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "e01acb5f-8cce-4bd4-93f0-98d4638509d7",
+      "name": "GET Demo Portfolio1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4144,
+        5088
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,QQQ,VIX,IWM&region=US&lang=en-US",
+        "options": {}
+      },
+      "id": "37965cb0-da84-40be-a566-1b880786b72f",
+      "name": "Check Market Conditions1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4368,
+        5088
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cashData = $('GET Demo Cash1').item.json;\nconst bubbleData = $input.item.json;\nconst market = $('Check Market Conditions1').item.json;\n\n// Safe portfolio read\nlet positions = [];\ntry {\n  positions = $('GET Demo Portfolio1').all().map(i => i.json).filter(p => p && p.quantity > 0);\n} catch(e) { positions = []; }\n\nconst cash = cashData.free || 0;\nconst marketContext = market.answer || (market.results || []).slice(0,2).map(r => r.content).join(' ') || '';\nconst bubbleContext = bubbleData.answer || (bubbleData.results || []).slice(0,3).map(r => r.content).join(' ') || '';\n\n// === BUBBLE SCORE (0-15, based on Minsky/Kindleberger framework) ===\nlet bubbleScore = 0;\nconst combined = (marketContext + ' ' + bubbleContext).toLowerCase();\n\n// VIX signals (fear/greed)\nif (combined.includes('vix') && (combined.includes('below 15') || combined.includes('vix 12') || combined.includes('vix 13') || combined.includes('vix 14'))) {\n  bubbleScore += 3; // extreme complacency\n} else if (combined.includes('vix') && (combined.includes('above 30') || combined.includes('vix 35') || combined.includes('vix 40'))) {\n  bubbleScore -= 1; // fear = buying opportunity not bubble\n}\n\n// Euphoria language\nconst euphoriaWords = ['all-time high', 'record high', 'irrational exuberance', 'melt up', 'parabolic', 'euphoria', 'mania', 'frenzy', 'bubble'];\neuphoriaWords.forEach(w => { if (combined.includes(w)) bubbleScore += 1; });\n\n// Fear/correction language (reduces score)\nconst fearWords = ['correction', 'bear market', 'recession', 'crash', 'selloff', 'downturn', 'contraction'];\nfearWords.forEach(w => { if (combined.includes(w)) bubbleScore -= 1; });\n\n// Valuation concerns\nif (combined.includes('overvalued') || combined.includes('stretched valuation') || combined.includes('high p/e')) bubbleScore += 2;\nif (combined.includes('undervalued') || combined.includes('cheap') || combined.includes('value stocks')) bubbleScore -= 1;\n\n// Market breadth\nif (combined.includes('narrowing breadth') || combined.includes('few stocks leading')) bubbleScore += 2;\nif (combined.includes('broad rally') || combined.includes('broad market')) bubbleScore -= 1;\n\n// Cap bubble score\nbubbleScore = Math.max(0, Math.min(15, bubbleScore));\n\n// Risk phase based on score\nlet riskPhase, aggressionMultiplier, riskColor;\nif (bubbleScore <= 4) {\n  riskPhase = 'Normal \ud83d\udfe2';\n  aggressionMultiplier = 1.0; // full aggression\n  riskColor = 'green';\n} else if (bubbleScore <= 7) {\n  riskPhase = 'Caution \ud83d\udfe1';\n  aggressionMultiplier = 0.75; // reduce position sizes 25%\n  riskColor = 'yellow';\n} else if (bubbleScore <= 9) {\n  riskPhase = 'Elevated Risk \ud83d\udfe0';\n  aggressionMultiplier = 0.5; // reduce position sizes 50%\n  riskColor = 'orange';\n} else if (bubbleScore <= 12) {\n  riskPhase = 'Euphoria \ud83d\udd34';\n  aggressionMultiplier = 0.25; // very small positions only\n  riskColor = 'red';\n} else {\n  riskPhase = 'Critical \u26d4';\n  aggressionMultiplier = 0; // no new buys\n  riskColor = 'critical';\n}\n\n// Market safe check (bearish keywords)\nconst bearishKeywords = ['crash', 'panic', 'circuit breaker', 'halted', 'black monday', 'recession fears', 'market meltdown'];\nconst isBearishMarket = bearishKeywords.some(k => combined.includes(k));\nconst marketSafe = !isBearishMarket && bubbleScore < 13;\n\nconst totalValue = positions.reduce((s,p) => s + ((p.currentPrice||0)*(p.quantity||0)), 0);\nconst totalPnl = positions.reduce((s,p) => s + (p.ppl||0), 0);\n\nreturn [{json: {\n  cash: parseFloat(cash.toFixed(2)),\n  openPositions: positions,\n  positionCount: positions.length,\n  hasPositions: positions.length > 0,\n  totalValue: parseFloat(totalValue.toFixed(2)),\n  totalPnl: parseFloat(totalPnl.toFixed(2)),\n  marketContext: marketContext.substring(0, 300),\n  bubbleContext: bubbleContext.substring(0, 300),\n  bubbleScore,\n  riskPhase,\n  aggressionMultiplier,\n  isBearishMarket,\n  marketSafe\n}}];"
+      },
+      "id": "56e4d786-c06e-4c5a-b948-01b84c8e2372",
+      "name": "Store State + Market Check1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        5088
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.positionCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "16339c5a-606d-4045-baee-558d97792be9",
+      "name": "Has Open Positions?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5680,
+        5088
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $('Store State + Market Check1').item.json;\nconst positions = state.openPositions;\n\nconst systemPrompt = `You are a swing trade manager targeting \u00a320/day profit from a \u00a3100 demo account.\n\nSELL RULES (tight targets for daily profits):\n- Sell immediately if position is up 4%+ (take profit \u2014 lock in the gain)\n- Sell if position is up 3%+ AND it has been held over 12 hours (don't get greedy)\n- Sell immediately if position is down 2.5%+ (stop loss \u2014 protect the pot)\n- Sell if RSI is now above 68 even if only up 2% (momentum fading, exit)\n- HOLD if up 1-2% and momentum still strong (let it run to 4%)\n- HOLD if down less than 2% and oversold bounce still in play\n\nGOAL: Small consistent wins. \u00a320/day target. Never let a winner turn into a loser.\n\nReturn ONLY valid JSON:\n{\"decisions\":[{\"ticker\":\"MARA_US_EQ\",\"action\":\"SELL\",\"reason\":\"Up 4.2% - take profit hit\"},{\"ticker\":\"IONQ_US_EQ\",\"action\":\"HOLD\",\"reason\":\"Up 1.8% - momentum still strong\"}]}`;\n\nconst userPrompt = `OPEN POSITIONS:\n${JSON.stringify(positions.map(p => ({\n  ticker: p.ticker,\n  quantity: p.quantity,\n  entryPrice: p.averagePrice,\n  currentPrice: p.currentPrice,\n  pnlPct: p.averagePrice ? (((p.currentPrice - p.averagePrice) / p.averagePrice) * 100).toFixed(2) + '%' : '0%',\n  pnl: p.ppl || 0\n})), null, 2)}\n\nApply the sell rules. Be disciplined. Return JSON only.`;\n\nreturn [{json: {systemPrompt, userPrompt, positions}}];"
+      },
+      "id": "412ab82d-839c-49ff-b0ec-fb19f34deec6",
+      "name": "Build Sell Prompt1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5904,
+        4976
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.item.json.content ||\n    $input.item.json.message?.content || '';\nconst positions = $('Build Sell Prompt1').item.json.positions;\n\n// Robust parser for deepseek output\nlet decisions = [];\ntry {\n    let cleaned = raw.replace(/```json/g,'').replace(/```/g,'').trim();\n    let parsed;\n    try {\n          parsed = JSON.parse(cleaned);\n    } catch(e1) {\n          try {\n                  parsed = JSON.parse('[' + cleaned + ']');\n          } catch(e2) {\n                  parsed = {decisions: []};\n          }\n    }\n    if (Array.isArray(parsed)) {\n          decisions = parsed;\n    } else if (parsed && Array.isArray(parsed.decisions)) {\n          decisions = parsed.decisions;\n    } else if (parsed && parsed.ticker) {\n          decisions = [parsed];\n    }\n} catch(e) {\n    decisions = [];\n}\n\nconst sells = decisions\n  .filter(d => d.action === 'SELL')\n  .map(d => {\n        const pos = positions.find(p => p.ticker === d.ticker);\n        return {\n                ticker: d.ticker,\n                quantity: pos ? pos.quantity : 0,\n                reason: d.reason,\n                currentPrice: pos ? pos.currentPrice : 0,\n                entryPrice: pos ? pos.averagePrice : 0,\n                pnlPct: pos && pos.averagePrice ?\n                          (((pos.currentPrice - pos.averagePrice) / pos.averagePrice) * 100).toFixed(2) + '%' : '0',\n                pnl: pos ? pos.ppl : 0\n        };\n  })\n  .filter(d => d.quantity > 0);\n\nreturn [{json: {sells, sellCount: sells.length, hasSells: sells.length > 0}}];"
+      },
+      "id": "1998897a-6e9e-4950-8348-dfeefd71da2f",
+      "name": "Parse Sell Decisions1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6336,
+        4976
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.sellCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "13996da0-0368-4c56-88c8-61789f8b3067",
+      "name": "Should Sell?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6560,
+        4976
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "sells",
+        "options": {}
+      },
+      "id": "e4d6edf6-b388-4576-9d77-a6f4dda4993f",
+      "name": "Split Sells1",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        6784,
+        4976
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "https://live.trading212.com/api/v0/equity/portfolio/{{ $json.ticker }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4f6db794-b3f5-4d9c-a32b-6f97cfc598a7",
+      "name": "Execute Sell1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7008,
+        4976
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED",
+          "cachedResultUrl": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "={{ $('Parse Sell Decisions1').item.json.sells[0]?.pnl >= 0 ? '\ud83d\udcb0' : '\ud83d\uded1' }} **SWING BOT \u2014 Position {{ $('Parse Sell Decisions1').item.json.sells[0]?.pnl >= 0 ? 'Closed \u2705' : 'Stopped Out \u274c' }}**\n\ud83d\udd50 {{ new Date().toLocaleString('en-GB') }}\n________________\n\n**{{ $('Split Sells1').item.json.ticker }}**\n{{ $('Split Sells1').item.json.quantity }} shares @ ${{ $('Split Sells1').item.json.currentPrice }}\nEntry: ${{ $('Split Sells1').item.json.entryPrice }}\nP&L: {{ $('Split Sells1').item.json.pnlPct }}% (${{ $('Split Sells1').item.json.pnl?.toFixed(2) }})\n\n_{{ $('Split Sells1').item.json.reason }}_\n________________",
+        "options": {}
+      },
+      "id": "2a1d63dc-d3cf-459c-8f68-ea36a5769dda",
+      "name": "Discord: Position Closed1",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        7216,
+        4976
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "echo \"{{ new Date().toISOString() }},{{ $('Split Sells').item.json.ticker }},SELL,{{ $('Split Sells').item.json.currentPrice }},{{ $('Split Sells').item.json.pnlPct }},{{ $('Split Sells').item.json.pnl }},{{ $('Split Sells').item.json.reason }}\" >> /home/c1-pop/mounts/zimablade-trading/swing_trades.csv"
+      },
+      "id": "9e1ad5d4-4861-4cb6-9210-4a6888258b2c",
+      "name": "Log Sell to CSV1",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        7440,
+        4976
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.isBearishMarket === true ? 0 : 1 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5b183e11-62c9-4b51-a155-b96557c43024",
+      "name": "Market Safe to Trade?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6208,
+        5536
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read dynamic watchlist from file saved by daily instrument fetch\nlet watchlist = [];\ntry {\n  const fileContent = $('Read Watchlist File1').item.json.stdout || '';\n  if (fileContent && fileContent.trim().startsWith('[')) {\n    watchlist = JSON.parse(fileContent.trim());\n  }\n} catch(e) {}\n\n// Fallback to hardcoded list if file not available\nif (!watchlist || watchlist.length === 0) {\n  watchlist = [\n    {\"ticker\": \"MARA_US_EQ\", \"name\": \"Marathon Digital\", \"yahoo\": \"MARA\"},\n    {\"ticker\": \"IONQ_US_EQ\", \"name\": \"IonQ\", \"yahoo\": \"IONQ\"},\n    {\"ticker\": \"SOUN_US_EQ\", \"name\": \"SoundHound AI\", \"yahoo\": \"SOUN\"},\n    {\"ticker\": \"HOOD_US_EQ\", \"name\": \"Robinhood\", \"yahoo\": \"HOOD\"},\n    {\"ticker\": \"RIVN_US_EQ\", \"name\": \"Rivian\", \"yahoo\": \"RIVN\"},\n    {\"ticker\": \"RKLB_US_EQ\", \"name\": \"Rocket Lab\", \"yahoo\": \"RKLB\"},\n    {\"ticker\": \"PLTR_US_EQ\", \"name\": \"Palantir\", \"yahoo\": \"PLTR\"},\n    {\"ticker\": \"SOFI_US_EQ\", \"name\": \"SoFi\", \"yahoo\": \"SOFI\"},\n    {\"ticker\": \"RIOT_US_EQ\", \"name\": \"Riot Platforms\", \"yahoo\": \"RIOT\"},\n    {\"ticker\": \"COIN_US_EQ\", \"name\": \"Coinbase\", \"yahoo\": \"COIN\"},\n    {\"ticker\": \"AFRM_US_EQ\", \"name\": \"Affirm\", \"yahoo\": \"AFRM\"},\n    {\"ticker\": \"UPST_US_EQ\", \"name\": \"Upstart\", \"yahoo\": \"UPST\"},\n    {\"ticker\": \"ACHR_US_EQ\", \"name\": \"Archer Aviation\", \"yahoo\": \"ACHR\"},\n    {\"ticker\": \"JOBY_US_EQ\", \"name\": \"Joby Aviation\", \"yahoo\": \"JOBY\"},\n    {\"ticker\": \"BBAI_US_EQ\", \"name\": \"BigBear.ai\", \"yahoo\": \"BBAI\"},\n    {\"ticker\": \"RGTI_US_EQ\", \"name\": \"Rigetti Computing\", \"yahoo\": \"RGTI\"},\n    {\"ticker\": \"QUBT_US_EQ\", \"name\": \"Quantum Computing\", \"yahoo\": \"QUBT\"},\n    {\"ticker\": \"CHPT_US_EQ\", \"name\": \"ChargePoint\", \"yahoo\": \"CHPT\"},\n    {\"ticker\": \"BLNK_US_EQ\", \"name\": \"Blink Charging\", \"yahoo\": \"BLNK\"},\n    {\"ticker\": \"OPEN_US_EQ\", \"name\": \"Opendoor\", \"yahoo\": \"OPEN\"}\n  ];\n}\n\n// Limit to 50 stocks max to avoid rate limiting Yahoo Finance\nconst limited = watchlist.slice(0, 50);\nreturn limited.map(s => ({json: s}));"
+      },
+      "id": "347756aa-5fa2-4cd4-b631-9c87289ba872",
+      "name": "Build Watchlist1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6128,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query1.finance.yahoo.com/v8/finance/chart/{{ $json.yahoo }}?interval=1d&range=14d",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7e99d109-cad5-4acd-ba30-3e70ebcee59e",
+      "name": "Get Price History1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6336,
+        5184
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $input.item.json;\nconst ticker = data.ticker || $('Build Watchlist1').item.json.ticker;\nconst name = data.name || $('Build Watchlist1').item.json.name;\nconst yahoo = data.yahoo || $('Build Watchlist1').item.json.yahoo;\nconst chart = data.chart;\nconst result = chart?.result?.[0];\n\nif (!result) return {json: {ticker, name, skip: true, skipReason: 'No chart data'}};\n\nconst closes = (result.indicators?.quote?.[0]?.close || []).filter(c => c !== null && c !== undefined);\nconst volumes = (result.indicators?.quote?.[0]?.volume || []).filter(v => v !== null && v !== undefined);\nconst meta = result.meta || {};\n\nif (closes.length < 5) return {json: {ticker, name, skip: true, skipReason: 'Not enough price data'}};\n\nlet currentPrice = meta.regularMarketPrice || closes[closes.length - 1];\nconst currency = meta.currency || '';\nif (currency === 'GBX' || currency === 'GBp' || currentPrice > 500) currentPrice = currentPrice / 100;\n\nconst price5dAgo = closes[closes.length - 6] || closes[0];\nconst change5d = ((currentPrice - price5dAgo) / price5dAgo) * 100;\nconst change1d = closes.length >= 2 ? ((closes[closes.length-1] - closes[closes.length-2]) / closes[closes.length-2]) * 100 : 0;\n\n// RSI calculation\nconst recentCloses = closes.slice(-14);\nlet gains = 0, losses = 0;\nfor (let i = 1; i < recentCloses.length; i++) {\n  const diff = recentCloses[i] - recentCloses[i-1];\n  if (diff > 0) gains += diff; else losses += Math.abs(diff);\n}\nconst periods = recentCloses.length - 1;\nconst avgGain = periods > 0 ? gains / periods : 0;\nconst avgLoss = periods > 0 ? losses / periods : 1;\nconst rs = avgLoss === 0 ? 100 : avgGain / avgLoss;\nconst rsi = parseFloat((100 - (100 / (1 + rs))).toFixed(1));\n\n// Volume spike\nconst recentVols = volumes.slice(-5).filter(v => v > 0);\nconst avgVol = recentVols.length > 0 ? recentVols.reduce((a,b) => a+b,0) / recentVols.length : 1;\nconst latestVol = volumes[volumes.length-1] || 0;\nconst volumeSpike = parseFloat((latestVol / avgVol).toFixed(2));\n\nlet dipScore = 0;\nlet signals = [];\n\n// RELAXED: RSI requirements are much easier to hit now\nif (rsi < 35) { dipScore += 45; signals.push('RSI very oversold: ' + rsi); }\nelse if (rsi < 45) { dipScore += 30; signals.push('RSI oversold: ' + rsi); }\nelse if (rsi < 55) { dipScore += 15; signals.push('RSI dipping: ' + rsi); } // NEW: Catches mild dips\n\n// RELAXED: 5-Day Change requirements easier to hit\nif (change5d < -8) { dipScore += 35; signals.push('Down ' + Math.abs(change5d).toFixed(1) + '% in 5 days'); }\nelse if (change5d < -4) { dipScore += 22; signals.push('Down ' + Math.abs(change5d).toFixed(1) + '% in 5 days'); }\nelse if (change5d < -1.5) { dipScore += 10; signals.push('Down ' + Math.abs(change5d).toFixed(1) + '% in 5 days'); }\n\nif (change5d < -2 && change1d > 0 && change1d < 4) { dipScore += 20; signals.push('Stabilising after dip'); }\nif (volumeSpike > 1.5 && change5d < -2) { dipScore += 20; signals.push('Volume spike on dip'); }\n\n// RELAXED: Overbought protection increased so it doesn't skip everything\nif (rsi > 70 || change5d > 6) {\n  return {json: {ticker, name, skip: true, skipReason: 'Overbought \u2014 RSI: ' + rsi + ' 5d: ' + change5d.toFixed(1) + '%', dipScore: 0}};\n}\n\n// Lowered the barrier to entry from 35 to 20\nif (dipScore < 20 || signals.length === 0) {\n  return {json: {ticker, name, skip: true, skipReason: 'Dip score too low: ' + dipScore, dipScore, rsi}};\n}\n\nreturn {json: {\n  ticker, name, yahoo, skip: false, dipScore, rsi,\n  currentPrice: parseFloat(currentPrice.toFixed(4)),\n  change5d: parseFloat(change5d.toFixed(2)),\n  change1d: parseFloat(change1d.toFixed(2)),\n  volumeSpike, signals\n}};"
+      },
+      "id": "840c98d6-6879-4d0e-9d91-91627764f569",
+      "name": "Calculate Dip Score1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6560,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c4",
+              "leftValue": "={{ $json.dipScore }}",
+              "rightValue": 34,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "163e3cc8-43b0-4355-b2b7-2fddd9ec207a",
+      "name": "Is a Dip?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6784,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://feeds.finance.yahoo.com/rss/2.0/headline?s={{ $json.yahoo }}&region=US&lang=en-US",
+        "options": {}
+      },
+      "id": "a7a9d30f-9364-461f-a715-2795d7d53d13",
+      "name": "Sentiment + News Check1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7152,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const sentimentRaw = $('Sentiment + News Check1').item.json;\nconst xml = sentimentRaw.data || '';\nconst ticker = $('Calculate Dip Score1').item.json.ticker || '';\nconst name = $('Calculate Dip Score1').item.json.name || '';\n\n// Extract headlines from RSS XML\nconst titles = [...xml.matchAll(/<title>(.*?)<\\/title>/gs)]\n  .map(m => m[1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').trim())\n  .filter(t => !t.includes('Yahoo! Finance:'))\n  .slice(0, 5);\n\nconst headlines = titles.join(' | ').toLowerCase();\n\n// Sentiment scoring\nlet score = 0;\nconst bullish = ['beat', 'surge', 'jump', 'soar', 'rally', 'gain', 'rise', 'up', 'buy', 'upgrade', 'strong', 'growth', 'record', 'profit', 'bullish'];\nconst bearish = ['miss', 'fall', 'drop', 'crash', 'sell', 'downgrade', 'weak', 'loss', 'cut', 'risk', 'warn', 'decline', 'bearish', 'concern'];\n\nbullish.forEach(w => { if (headlines.includes(w)) score++; });\nbearish.forEach(w => { if (headlines.includes(w)) score--; });\n\nlet sentimentLabel, sentimentOk;\nif (score >= 2) { sentimentLabel = 'Bullish \ud83d\udfe2'; sentimentOk = true; }\nelse if (score >= 0) { sentimentLabel = 'Neutral \ud83d\udfe1'; sentimentOk = true; }\nelse if (score >= -2) { sentimentLabel = 'Cautious \ud83d\udfe0'; sentimentOk = false; }\nelse { sentimentLabel = 'Bearish \ud83d\udd34'; sentimentOk = false; }\n\nconst prev = $('Calculate Dip Score1').item.json;\nreturn {json: {\n  ...prev,\n  sentimentLabel,\n  sentimentScore: score,\n  sentimentOk,\n  sentimentNotes: titles.slice(0,3),\n  catalyst: titles[0] || 'No recent news'\n}};"
+      },
+      "id": "71959122-a161-43ee-a22b-a7fa956da74c",
+      "name": "Assess Sentiment1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7488,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1ba63b0b-55ae-45ee-801f-e661bb2f91a5",
+              "leftValue": "={{ $json.sentimentOk }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c7af78d2-eaa9-4522-9e6a-2f65a49662c3",
+      "name": "Sentiment OK?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7888,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json).filter(i => !i.skip);\nconst state = $('Store State + Market Check1').item.json;\nconst cash = state.cash;\nconst openTickers = state.openPositions.map(p => p.ticker);\nconst aggressionMultiplier = state.aggressionMultiplier || 1.0;\nconst riskPhase = state.riskPhase || 'Normal \ud83d\udfe2';\n\nconst available = items\n  .filter(i => !openTickers.includes(i.ticker))\n  .sort((a, b) => (b.finalScore || b.dipScore) - (a.finalScore || a.dipScore));\n\nif (available.length === 0 || cash < 5) {\n  return [{json: {hasBuys: false, buys: [], buyCount: 0, cash, reason: available.length === 0 ? 'No opportunities passed sentiment check' : 'Insufficient cash'}}];\n}\n\n// EXPANDED: Increased from 4 to 10 max positions\nconst maxPositions = 10; \nconst currentCount = openTickers.length;\nconst slots = Math.max(0, maxPositions - currentCount);\n\nif (slots === 0) {\n  return [{json: {hasBuys: false, buys: [], buyCount: 0, cash, reason: `Max ${maxPositions} positions already open`}}];\n}\n\nconst adjustedCash = cash * aggressionMultiplier;\n\nif (adjustedCash < 5) {\n  return [{json: {hasBuys: false, buys: [], buyCount: 0, cash, reason: 'Risk phase ' + riskPhase + ' - position size too small to trade'}}];\n}\n\nconst topPicks = available.slice(0, slots);\nconst cashPerTrade = Math.min(adjustedCash * 0.15, adjustedCash / topPicks.length);\n\nconst buys = topPicks.map(d => ({\n  ticker: d.ticker,\n  name: d.name,\n  amount: parseFloat(Math.max(cashPerTrade, 5).toFixed(2)),\n  currentPrice: d.currentPrice,\n  finalScore: d.finalScore || d.dipScore,\n  rsi: d.rsi,\n  change5d: d.change5d,\n  signals: d.signals,\n  sentimentLabel: d.sentimentLabel || 'Neutral',\n  sentimentNotes: d.sentimentNotes || [],\n  catalyst: d.catalyst || 'No specific catalyst',\n  riskPhase\n})).filter(b => b.amount >= 5);\n\nreturn [{json: {hasBuys: buys.length > 0, buys, buyCount: buys.length, cash, riskPhase, aggressionMultiplier}}];"
+      },
+      "id": "fc57c5a4-0085-402a-8ff2-ad237de1f535",
+      "name": "Pick Best Opportunities1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8096,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c6",
+              "leftValue": "={{ $json.buyCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a5a2bcd-c6d9-46a6-993a-10c3d51c1f8a",
+      "name": "Should Buy?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        8320,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "buys",
+        "options": {}
+      },
+      "id": "43d339cb-09f9-438f-b850-af3cffe19dfe",
+      "name": "Split Buys1",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        8544,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const buy = $json;\nlet quantity = Math.floor((buy.amount / buy.currentPrice) * 100) / 100;\nif (quantity < 0.01) quantity = 0.01;\nreturn {json: {...buy, quantity}};"
+      },
+      "id": "ffbc3101-8eda-4da6-b1e0-3099da63f38f",
+      "name": "Calculate Quantity1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8768,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://live.trading212.com/api/v0/equity/orders/market",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"ticker\":\"{{ $json.ticker }}\",\"quantity\":{{ $json.quantity }}}",
+        "options": {}
+      },
+      "id": "caeb7682-bbcd-458f-a5fb-0fa8fd0e02a5",
+      "name": "Place Buy Order1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8976,
+        5184
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED",
+          "cachedResultUrl": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "=\ud83d\udcc9 **SWING BOT \u2014 DIP BUY**\n\ud83d\udd50 {{ new Date().toLocaleString('en-GB') }}\n________________\n\n**{{ $('Calculate Quantity1').item.json.ticker }}** \u2014 {{ $('Calculate Quantity1').item.json.name }}\n{{ $('Calculate Quantity1').item.json.quantity }} shares @ ${{ $('Calculate Quantity1').item.json.currentPrice }}\nAmount: ${{ $('Calculate Quantity1').item.json.amount }}\n\n**Signals:**\n\u2022 {{ $('Calculate Quantity1').item.json.signals.join('\\n\u2022 ') }}\n\n**Sentiment:** {{ $('Calculate Quantity1').item.json.sentimentLabel }}\n{{ $('Calculate Quantity1').item.json.sentimentNotes.length > 0 ? '\u2022 ' + $('Calculate Quantity1').item.json.sentimentNotes.join('\\n\u2022 ') : '' }}\n\n**Catalyst:** {{ $('Calculate Quantity1').item.json.catalyst }}\n\n\ud83d\udcca RSI: {{ $('Calculate Quantity1').item.json.rsi }} | 5d: {{ $('Calculate Quantity1').item.json.change5d }}%\n\ud83c\udfaf Target: +4% | \ud83d\uded1 Stop: -2.5%\n________________",
+        "options": {}
+      },
+      "id": "64a73150-d427-4205-bc1b-0fc5b305a27c",
+      "name": "Discord: Dip Buy1",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        9200,
+        5184
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=echo \"{{ new Date().toISOString() }},{{ $('Calculate Quantity1').item.json.ticker }},BUY,{{ $('Calculate Quantity1').item.json.currentPrice }},{{ $('Calculate Quantity1').item.json.quantity }},{{ $('Calculate Quantity1').item.json.amount }},{{ $('Calculate Quantity1').item.json.rsi }},{{ $('Calculate Quantity1').item.json.change5d }},{{ $('Calculate Quantity1').item.json.finalScore }}\" >> /home/c1-pop/mounts/zimablade-trading/swing_trades.csv\n"
+      },
+      "id": "5a7b8aae-d04b-495b-84ec-91875af97353",
+      "name": "Log Buy1",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        9424,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/account/cash",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "c93cd68b-1411-4575-8275-7ece8558d4a0",
+      "name": "EOD: GET Cash1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3920,
+        5584
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://live.trading212.com/api/v0/equity/portfolio",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "025a0cc3-fab2-472b-bc1e-af142c489a9b",
+      "name": "EOD: GET Portfolio1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4144,
+        5584
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cashData = $('EOD: GET Cash1').item.json;\nconst positions = $('EOD: GET Portfolio1').all().map(i => i.json).filter(p => p && p.quantity > 0);\n\nconst cash = cashData.free || 0;\nconst currentValue = positions.reduce((s,p) => s + ((p.currentPrice||0)*(p.quantity||0)), 0);\nconst totalPnl = positions.reduce((s,p) => s + (p.ppl||0), 0);\nconst totalAccount = cash + currentValue;\nconst startingValue = 5000;\n\nconst positionsList = positions.length > 0\n  ? positions.map(p => {\n      const pnlPct = p.averagePrice ? (((p.currentPrice - p.averagePrice) / p.averagePrice) * 100).toFixed(1) : '0';\n      return '\u2022 ' + p.ticker + ': ' + (pnlPct > 0 ? '\ud83d\udcc8' : '\ud83d\udcc9') + ' ' + pnlPct + '% ($' + (p.ppl||0).toFixed(2) + ')';\n    }).join('\\n')\n  : '\u2022 No open positions';\n\nconst diff = (totalAccount - startingValue).toFixed(2);\nconst diffPct = (((totalAccount - startingValue) / startingValue) * 100).toFixed(1);\nconst targetStatus = totalPnl >= 20 ? '\u2705 TARGET HIT!' : totalPnl >= 10 ? '\ud83d\udfe1 Halfway there' : totalPnl >= 0 ? '\ud83d\udd35 Positive but below target' : '\ud83d\udd34 In the red today';\n\nconst report = '\ud83d\udcca **SWING BOT \u2014 Daily P&L Report**\\n\ud83d\udd50 ' + new Date().toLocaleString('en-GB') + '\\n________________\\n\\n' +\n  '\ud83d\udcb0 **Account Summary:**\\n' +\n  '\u2022 Total value: $' + totalAccount.toFixed(2) + '\\n' +\n  '\u2022 Free cash: $' + cash.toFixed(2) + '\\n' +\n  '\u2022 Open positions: ' + positions.length + '\\n' +\n  '\u2022 Unrealised P&L: ' + (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2) + '\\n' +\n  '\u2022 vs Start ($5000): ' + (totalAccount >= startingValue ? '+' : '') + '$' + diff + ' (' + diffPct + '%)\\n\\n' +\n  '\ud83d\udcc8 **Open Positions:**\\n' + positionsList + '\\n\\n' +\n  '\ud83c\udfaf **Daily Target:** $20 profit\\n' + targetStatus + '\\n________________';\n\nreturn [{json: {report}}];"
+      },
+      "id": "eb4a61f0-155b-488a-a0d4-97322e3e03f2",
+      "name": "Build EOD Report1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4368,
+        5584
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED",
+          "cachedResultUrl": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "={{ $json.report }}",
+        "options": {}
+      },
+      "id": "622377b1-4440-40d4-8e42-af260a3b9025",
+      "name": "Discord: EOD Report1",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        5584
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EVIX,%5EGSPC&region=US&lang=en-US",
+        "options": {}
+      },
+      "id": "70f08277-93c6-4a95-9bbf-41e6d9ee59b4",
+      "name": "Bubble Detector1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4576,
+        5088
+      ]
+    },
+    {
+      "parameters": {
+        "command": "cat /home/c1-pop/mounts/zimablade-trading/swing_trades.csv 2>/dev/null | tail -50"
+      },
+      "id": "f8b2319d-e2e9-4edc-8ab2-303ad5d0b306",
+      "name": "Read Trade Log CSV1",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        5024,
+        5088
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Circuit Breaker \u2014 checks if bot should be trading at all\nconst state = $('Store State + Market Check1').item.json;\nconst cash = state.cash;\nconst totalValue = state.totalValue;\nconst totalAccount = cash + totalValue;\n\n// Read trade log to calculate performance metrics\nlet tradeLog = '';\ntry {\n  tradeLog = $('Read Trade Log CSV1').item.json.stdout || '';\n} catch(e) { tradeLog = ''; }\n\n// Parse CSV trades\nconst lines = tradeLog.split('\\n').filter(l => l.includes(','));\nconst trades = lines.map(l => {\n  const parts = l.split(',');\n  return {\n    date: parts[0],\n    ticker: parts[1],\n    action: parts[2],\n    price: parseFloat(parts[3]) || 0,\n    pnlPct: parseFloat(parts[4]) || 0,\n    pnl: parseFloat(parts[5]) || 0\n  };\n}).filter(t => t.action === 'SELL');\n\n// Calculate metrics\nconst totalTrades = trades.length;\nconst winners = trades.filter(t => t.pnl > 0);\nconst losers = trades.filter(t => t.pnl <= 0);\nconst winRate = totalTrades > 0 ? ((winners.length / totalTrades) * 100).toFixed(1) : 0;\nconst totalPnl = trades.reduce((s, t) => s + t.pnl, 0);\nconst avgWin = winners.length > 0 ? winners.reduce((s,t) => s+t.pnl, 0) / winners.length : 0;\nconst avgLoss = losers.length > 0 ? Math.abs(losers.reduce((s,t) => s+t.pnl, 0) / losers.length) : 0;\nconst profitFactor = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : 'N/A';\n\n// Get recent trades for consecutive loss check\nconst recentTrades = trades.slice(-5);\nconst consecutiveLosses = (() => {\n  let count = 0;\n  for (let i = recentTrades.length - 1; i >= 0; i--) {\n    if (recentTrades[i].pnl <= 0) count++;\n    else break;\n  }\n  return count;\n})();\n\n// Get today's trades\nconst today = new Date().toISOString().split('T')[0];\nconst todayTrades = trades.filter(t => t.date && t.date.startsWith(today));\nconst todayPnl = todayTrades.reduce((s, t) => s + t.pnl, 0);\n\n// CIRCUIT BREAKER RULES\nconst startingValue = 5000; // demo starting amount\nconst peakValue = Math.max(startingValue, totalAccount); // simplified - ideally track this separately\nconst drawdownFromStart = ((startingValue - totalAccount) / startingValue) * 100;\n\nlet circuitBreakerTriggered = false;\nlet pauseReason = '';\n\n// Rule 1: Max drawdown 15% from starting value\nif (drawdownFromStart >= 15) {\n  circuitBreakerTriggered = true;\n  pauseReason = 'MAX DRAWDOWN: Account down ' + drawdownFromStart.toFixed(1) + '% from start ($' + startingValue + ')';\n}\n\n// Rule 2: 3 consecutive losses\nif (consecutiveLosses >= 3) {\n  circuitBreakerTriggered = true;\n  pauseReason = 'CONSECUTIVE LOSSES: ' + consecutiveLosses + ' losses in a row \u2014 strategy not working right now';\n}\n\n// Rule 3: Daily trade count limit (6 per day)\nif (todayTrades.length >= 6) {\n  circuitBreakerTriggered = true;\n  pauseReason = 'DAILY TRADE LIMIT: ' + todayTrades.length + ' trades today \u2014 pausing to avoid overtrading';\n}\n\n// Rule 4: Daily loss limit (5% of account)\nconst dailyLossLimit = totalAccount * 0.05;\nif (todayPnl < -dailyLossLimit) {\n  circuitBreakerTriggered = true;\n  pauseReason = 'DAILY LOSS LIMIT: Lost $' + Math.abs(todayPnl).toFixed(2) + ' today (limit: $' + dailyLossLimit.toFixed(2) + ')';\n}\n\nreturn [{json: {\n  ...state,\n  circuitBreakerTriggered,\n  pauseReason,\n  metrics: {\n    totalTrades,\n    winRate,\n    totalPnl: totalPnl.toFixed(2),\n    profitFactor,\n    consecutiveLosses,\n    todayTrades: todayTrades.length,\n    todayPnl: todayPnl.toFixed(2),\n    drawdownFromStart: drawdownFromStart.toFixed(1)\n  }\n}}];"
+      },
+      "id": "89a2f45c-6aac-4fac-866f-e81236cb8a79",
+      "name": "Circuit Breaker1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5248,
+        5088
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "cc395bba-82c7-461c-984e-039c984d334a",
+      "name": "Friday 5pm Weekly Report1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        3696,
+        5776
+      ]
+    },
+    {
+      "parameters": {
+        "command": "cat /home/c1-pop/mounts/zimablade-trading/swing_trades.csv 2>/dev/null"
+      },
+      "id": "46c9f21e-9cf2-4b82-98a5-f862a7311636",
+      "name": "Read All Trades1",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3920,
+        5776
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tradeLog = $input.item.json.stdout || '';\nconst lines = tradeLog.split('\\n').filter(l => l.includes(',') && !l.startsWith('Date'));\n\nconst trades = lines.map(l => {\n  const parts = l.split(',');\n  return {\n    date: parts[0],\n    ticker: parts[1],\n    action: parts[2],\n    price: parseFloat(parts[3]) || 0,\n    pnlPct: parseFloat(parts[4]) || 0,\n    pnl: parseFloat(parts[5]) || 0,\n    score: parseFloat(parts[8]) || 0\n  };\n}).filter(t => t.action === 'SELL' && !isNaN(t.pnl));\n\nif (trades.length === 0) {\n  return [{json: {report: '\ud83d\udcca **Weekly Performance Report**\\nNo closed trades yet this week.'}}];\n}\n\nconst winners = trades.filter(t => t.pnl > 0);\nconst losers = trades.filter(t => t.pnl <= 0);\nconst totalPnl = trades.reduce((s,t) => s + t.pnl, 0);\nconst winRate = ((winners.length / trades.length) * 100).toFixed(1);\nconst avgWin = winners.length > 0 ? (winners.reduce((s,t) => s+t.pnl, 0) / winners.length).toFixed(2) : 0;\nconst avgLoss = losers.length > 0 ? Math.abs((losers.reduce((s,t) => s+t.pnl, 0) / losers.length)).toFixed(2) : 0;\nconst profitFactor = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : 'N/A';\n\n// Sharpe ratio (simplified - daily returns)\nconst returns = trades.map(t => t.pnlPct);\nconst avgReturn = returns.reduce((s,r) => s+r, 0) / returns.length;\nconst stdDev = Math.sqrt(returns.reduce((s,r) => s + Math.pow(r - avgReturn, 2), 0) / returns.length);\nconst sharpe = stdDev > 0 ? (avgReturn / stdDev).toFixed(2) : 'N/A';\n\n// Best and worst trades\nconst best = trades.reduce((a,b) => a.pnl > b.pnl ? a : b);\nconst worst = trades.reduce((a,b) => a.pnl < b.pnl ? a : b);\n\n// Weekly trades (last 7 days)\nconst weekAgo = new Date();\nweekAgo.setDate(weekAgo.getDate() - 7);\nconst weekTrades = trades.filter(t => new Date(t.date) >= weekAgo);\nconst weekPnl = weekTrades.reduce((s,t) => s + t.pnl, 0);\n\nconst perfEmoji = totalPnl >= 20 ? '\ud83d\udfe2' : totalPnl >= 0 ? '\ud83d\udfe1' : '\ud83d\udd34';\n\nconst report = '\ud83d\udcca **SWING BOT \u2014 Weekly Performance Report**\\n' +\n  '\ud83d\udd50 ' + new Date().toLocaleString('en-GB') + '\\n________________\\n\\n' +\n  '**This Week:**\\n' +\n  '\u2022 Trades: ' + weekTrades.length + '\\n' +\n  '\u2022 P&L: ' + (weekPnl >= 0 ? '+' : '') + '$' + weekPnl.toFixed(2) + '\\n' +\n  '\u2022 vs \u00a320/day target: ' + (weekPnl >= 100 ? '\u2705 TARGET HIT' : weekPnl >= 50 ? '\ud83d\udfe1 Halfway' : '\ud83d\udd34 Below target') + '\\n\\n' +\n  '**All Time Stats:**\\n' +\n  '\u2022 Total closed trades: ' + trades.length + '\\n' +\n  '\u2022 Win rate: ' + winRate + '% (' + winners.length + 'W / ' + losers.length + 'L)\\n' +\n  '\u2022 Total P&L: ' + (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2) + '\\n' +\n  '\u2022 Avg win: $' + avgWin + ' | Avg loss: $' + avgLoss + '\\n' +\n  '\u2022 Profit factor: ' + profitFactor + ' (>1.5 = good)\\n' +\n  '\u2022 Sharpe ratio: ' + sharpe + ' (>1.0 = good)\\n\\n' +\n  '**Best trade:** ' + best.ticker + ' +$' + best.pnl.toFixed(2) + '\\n' +\n  '**Worst trade:** ' + worst.ticker + ' $' + worst.pnl.toFixed(2) + '\\n________________';\n\nreturn [{json: {report}}];"
+      },
+      "id": "f973d9e3-a015-4aa3-be75-76922f744bac",
+      "name": "Calculate Weekly Performance1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4144,
+        5776
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "={{ $json.report }}",
+        "options": {}
+      },
+      "id": "2c747cbb-c289-473f-9dbc-ed8c2b294465",
+      "name": "Discord: Weekly Report1",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        4368,
+        5776
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "8879bff1-14aa-41aa-bc11-cfd711964d65",
+      "name": "Daily Instrument Fetch1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        3696,
+        5984
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://demo.trading212.com/api/v0/equity/metadata/instruments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "1f5f751e-21f0-4337-8e5e-7dd7cd503738",
+      "name": "GET T212 Instruments1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3920,
+        5984
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const instruments = $input.all().map(i => i.json).flat();\n\n// EXPANDED: Added major tech, high volume, and general market movers\nconst volatileKeywords = [\n  'apple', 'microsoft', 'tesla', 'alphabet', 'amazon', 'meta', 'amd', 'arm holdings',\n  'marathon digital', 'riot platforms', 'bit digital', 'hut 8', 'bitfarms', 'cipher mining', 'cleanspark',\n  'soundhound', 'ionq', 'bigbear', 'rigetti', 'quantum computing', 'c3.ai', 'palantir',\n  'rivian', 'lucid motors', 'chargepoint', 'blink charging', 'workhorse', 'canoo',\n  'rocket lab', 'archer aviation', 'joby aviation', 'virgin galactic',\n  'robinhood', 'sofi technologies', 'affirm', 'upstart', 'opendoor', 'coinbase',\n  'tilray', 'canopy growth', 'aurora cannabis',\n  'occidental petroleum', 'apa corporation', 'valero energy', 'exxon mobil', 'chevron',\n  'devon energy', 'pioneer natural', 'halliburton', 'schlumberger', 'baker hughes',\n  'marathon oil', 'coterra', 'range resources', 'antero', 'chesapeake',\n  'united airlines', 'delta air', 'american airlines', 'southwest airlines', 'spirit airlines',\n  'jetblue', 'alaska air', 'royal caribbean', 'carnival', 'norwegian cruise',\n  'unitedhealth', 'humana', 'centene', 'molina healthcare', 'cvs health',\n  'teladoc', 'hims', '23andme', 'invitae', 'exact sciences',\n  'wayfair', 'chewy', 'peloton', 'beyond meat', 'olaplex',\n  'gamestop', 'amc entertainment', 'blackberry',\n  'intel corporation', 'advanced micro', 'nvidia', 'micron technology',\n  'western digital', 'seagate', 'corsair', 'super micro',\n  'netflix', 'roku', 'fubo', 'bumble', 'match group', 'snap inc',\n  'offerpad', 'compass inc', 'redfin'\n];\n\nconst excludedTickers = [\n  '_WAR', 'DMYY', 'DMYI', 'RTP_', 'IPOB', 'HUTMF',\n  'ACIC', 'HCAC', 'SBE_', 'IPOC', 'IPOE', 'VACQ', 'SNII', 'TLRY1',\n  'GIG_', 'AI1_', 'SPAQ', 'MARA_W'\n];\n\nconst filtered = instruments.filter(inst => {\n  if (!inst.ticker || !inst.ticker.endsWith('_US_EQ')) return false;\n  if (inst.currencyCode !== 'USD') return false;\n  if (!inst.name && !inst.shortName) return false;\n  if (excludedTickers.some(ex => inst.ticker.includes(ex))) return false;\n  \n  const name = (inst.name || inst.shortName || '').toLowerCase();\n  if (name.includes('warrant') || name.includes(' right ') || name.endsWith(' rights')) return false;\n  if (name.includes('spac') || name.includes('acquisition corp')) return false;\n  \n  // Only keep stocks that match our broad volatile list\n  return volatileKeywords.some(kw => name.includes(kw));\n});\n\nconst watchlist = filtered.map(inst => ({\n  ticker: inst.ticker,\n  name: inst.name || inst.shortName || inst.ticker,\n  yahoo: inst.ticker.replace('_US_EQ', ''),\n  isin: inst.isin || ''\n}));\n\nconst unique = watchlist.filter((v, i, a) => a.findIndex(t => t.ticker === v.ticker) === i);\nunique.sort((a, b) => a.name.localeCompare(b.name));\n\nreturn [{json: {\n  watchlist: unique,\n  count: unique.length,\n  watchlistJson: JSON.stringify(unique, null, 2),\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "id": "d9711ffb-db2a-405f-8f65-80b733e8b5f9",
+      "name": "Filter Volatile Instruments1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4144,
+        5984
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "REDACTED_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "REDACTED_CHANNEL_ID",
+          "mode": "id"
+        },
+        "content": "=\ud83d\udccb **SWING BOT \u2014 Watchlist Updated**\n\ud83d\udd50 {{ new Date().toLocaleString('en-GB') }}\n\n\u2705 {{ $('Filter Volatile Instruments1').item.json.count }} volatile US stocks loaded from T212\n_Scanning all of these every hour for dip opportunities_\n________________",
+        "options": {}
+      },
+      "id": "70404f73-ea1d-4b4d-a411-b7bbc208829c",
+      "name": "Discord: Watchlist Updated1",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        5984
+      ],
+      "webhookId": "REDACTED_WEBHOOK_ID",
+      "credentials": {
+        "discordBotApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "REDACTED_CRED_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "cat /home/c1-pop/mounts/zimablade-trading/watchlist.json 2>/dev/null || echo '[]'"
+      },
+      "id": "03091852-b5cd-4ff2-8827-a25284993ad1",
+      "name": "Read Watchlist File1",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        5904,
+        5184
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=cat > /home/c1-pop/mounts/zimablade-trading/watchlist.json << 'ENDOFFILE'\n{{ $json.watchlistJson }}\nENDOFFILE\necho \"Saved {{ $json.count }} instruments\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        4336,
+        6032
+      ],
+      "id": "fbebc63c-8cc6-4ff2-84c3-df33d274f74c",
+      "name": "Execute Command1"
+    },
+    {
+      "parameters": {
+        "command": "cd /home/c1-pop && python3 -m venv /home/c1-pop/unsloth_env 2>&1 && echo \"Venv created\" && /home/c1-pop/unsloth_env/bin/pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 2>&1 | tail -3 && echo \"PyTorch installed\" && /home/c1-pop/unsloth_env/bin/pip install --quiet \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\" 2>&1 | tail -3 && echo \"Unsloth installed\" && /home/c1-pop/unsloth_env/bin/pip install --quiet datasets trl peft 2>&1 | tail -3 && echo \"All deps installed\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        6784,
+        4384
+      ],
+      "id": "a201d2d8-6e4c-407c-ac56-6c73f6740e06",
+      "name": "Unsloth Setup"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Unsloth Feedback Logger\n// Appends each sell decision as a training example to unsloth_feedback.jsonl\nconst fs = require('fs');\nconst path = '/home/c1-pop/mounts/zimablade-trading/unsloth_feedback.jsonl';\n\nconst results = [];\n\nfor (const item of $input.all()) {\n    const d = item.json;\n\n    // Determine if this was a good or bad decision\n    const pnl = parseFloat(d.pnl) || 0;\n    const outcome = pnl >= 0 ? 'GOOD_SELL' : 'BAD_SELL';\n    const quality = pnl >= 0 ? 'correct' : 'premature or incorrect';\n\n    // Build a training example in Alpaca format for Unsloth\n    const trainingExample = {\n          timestamp: new Date().toISOString(),\n          instruction: \"You are a swing trading AI. Analyze this position and decide: SELL or HOLD.\",\n          input: `Ticker: ${d.ticker}, Current Price: ${d.currentPrice}, Entry Price: ${d.entryPrice || 'unknown'}, PnL%: ${d.pnlPct}, RSI context available.`,\n          output: `{\"action\": \"SELL\", \"reason\": \"${(d.reason || '').replace(/\"/g, \"'\")}\"}`,\n          outcome: outcome,\n          pnl: pnl,\n          feedback: `This sell was ${quality}. PnL: ${pnl}`\n    };\n    \n    // Append to JSONL file\n    try {\n          fs.appendFileSync(path, JSON.stringify(trainingExample) + '\\n');\n    } catch(e) {\n          // File write failed - log but don't crash workflow\n          console.log('Feedback write error:', e.message);\n    }\n    \n    results.push({ json: { ...d, feedbackLogged: true, outcome } });\n}\n\nreturn results;\n    }\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7648,
+        4976
+      ],
+      "id": "3612dc92-185c-41d3-9e04-9eacaf86600e",
+      "name": "Log Unsloth Feedback"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        6336,
+        5616
+      ],
+      "id": "d9b1ea54-6239-438c-854b-ef476c424810",
+      "name": "Nightly Unsloth Fine-tune"
+    }
+  ],
+  "pinData": {
+    "Every Hour Market Hours1": [
+      {
+        "json": {
+          "timestamp": "2026-05-18T15:00:00.004-04:00",
+          "Readable date": "May 18th 2026, 3:00:00 pm",
+          "Readable time": "3:00:00 pm",
+          "Day of week": "Monday",
+          "Year": "2026",
+          "Month": "May",
+          "Day of month": "18",
+          "Hour": "15",
+          "Minute": "00",
+          "Second": "00",
+          "Timezone": "America/New_York (UTC-04:00)"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Message a model1": {
+      "main": [
+        [
+          {
+            "node": "Parse Sell Decisions1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Hour Market Hours1": {
+      "main": [
+        [
+          {
+            "node": "GET Demo Cash1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4pm Daily P&L Report1": {
+      "main": [
+        [
+          {
+            "node": "EOD: GET Cash1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Demo Cash1": {
+      "main": [
+        [
+          {
+            "node": "GET Demo Portfolio1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Demo Portfolio1": {
+      "main": [
+        [
+          {
+            "node": "Check Market Conditions1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Market Conditions1": {
+      "main": [
+        [
+          {
+            "node": "Bubble Detector1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store State + Market Check1": {
+      "main": [
+        [
+          {
+            "node": "Read Trade Log CSV1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Open Positions?1": {
+      "main": [
+        [
+          {
+            "node": "Build Sell Prompt1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Market Safe to Trade?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Sell Prompt1": {
+      "main": [
+        [
+          {
+            "node": "Message a model1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sell Decisions1": {
+      "main": [
+        [
+          {
+            "node": "Should Sell?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Sell?1": {
+      "main": [
+        [
+          {
+            "node": "Split Sells1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Market Safe to Trade?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Sells1": {
+      "main": [
+        [
+          {
+            "node": "Execute Sell1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Sell1": {
+      "main": [
+        [
+          {
+            "node": "Discord: Position Closed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Position Closed1": {
+      "main": [
+        [
+          {
+            "node": "Log Sell to CSV1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Sell to CSV1": {
+      "main": [
+        [
+          {
+            "node": "Market Safe to Trade?1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Unsloth Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Market Safe to Trade?1": {
+      "main": [
+        [
+          {
+            "node": "Read Watchlist File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Watchlist1": {
+      "main": [
+        [
+          {
+            "node": "Get Price History1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Price History1": {
+      "main": [
+        [
+          {
+            "node": "Calculate Dip Score1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Dip Score1": {
+      "main": [
+        [
+          {
+            "node": "Is a Dip?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is a Dip?1": {
+      "main": [
+        [
+          {
+            "node": "Sentiment + News Check1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentiment + News Check1": {
+      "main": [
+        [
+          {
+            "node": "Assess Sentiment1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Sentiment1": {
+      "main": [
+        [
+          {
+            "node": "Sentiment OK?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentiment OK?1": {
+      "main": [
+        [
+          {
+            "node": "Pick Best Opportunities1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Best Opportunities1": {
+      "main": [
+        [
+          {
+            "node": "Should Buy?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Buy?1": {
+      "main": [
+        [
+          {
+            "node": "Split Buys1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Buys1": {
+      "main": [
+        [
+          {
+            "node": "Calculate Quantity1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Quantity1": {
+      "main": [
+        [
+          {
+            "node": "Place Buy Order1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Place Buy Order1": {
+      "main": [
+        [
+          {
+            "node": "Discord: Dip Buy1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Dip Buy1": {
+      "main": [
+        [
+          {
+            "node": "Log Buy1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EOD: GET Cash1": {
+      "main": [
+        [
+          {
+            "node": "EOD: GET Portfolio1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EOD: GET Portfolio1": {
+      "main": [
+        [
+          {
+            "node": "Build EOD Report1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build EOD Report1": {
+      "main": [
+        [
+          {
+            "node": "Discord: EOD Report1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bubble Detector1": {
+      "main": [
+        [
+          {
+            "node": "Store State + Market Check1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Trade Log CSV1": {
+      "main": [
+        [
+          {
+            "node": "Circuit Breaker1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Circuit Breaker1": {
+      "main": [
+        [
+          {
+            "node": "Has Open Positions?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Friday 5pm Weekly Report1": {
+      "main": [
+        [
+          {
+            "node": "Read All Trades1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read All Trades1": {
+      "main": [
+        [
+          {
+            "node": "Calculate Weekly Performance1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Weekly Performance1": {
+      "main": [
+        [
+          {
+            "node": "Discord: Weekly Report1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Instrument Fetch1": {
+      "main": [
+        [
+          {
+            "node": "GET T212 Instruments1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET T212 Instruments1": {
+      "main": [
+        [
+          {
+            "node": "Filter Volatile Instruments1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Volatile Instruments1": {
+      "main": [
+        [
+          {
+            "node": "Execute Command1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Watchlist File1": {
+      "main": [
+        [
+          {
+            "node": "Build Watchlist1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command1": {
+      "main": [
+        [
+          {
+            "node": "Discord: Watchlist Updated1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "d7667c27-7aef-4e6f-b652-310c794dca3b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "REDACTED"
+  },
+  "id": "umorD85tRGw3waFS",
+  "tags": []
+}
