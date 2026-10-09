@@ -90,3 +90,5 @@ Found by reading the exports on 8 October 2026:
 ## Licence and credits
 
 MIT, see [LICENSE](LICENSE). Built on [n8n](https://n8n.io/) (Sustainable Use Licence) and [Ollama](https://ollama.com/). Market data comes from Yahoo Finance and CoinGecko, and the brokerage is Trading 212; each has its own terms of use.
+
+If this is useful to you, [buy me a coffee](https://buymeacoffee.com/iamc_tech) ☕
