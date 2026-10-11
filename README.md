@@ -6,7 +6,7 @@ Four exported n8n workflows that had a local LLM pick and place Trading 212 trad
 
 *The node flow of `Trading212_AI_Autonomous_Trader_v2_CLEAN.json`, grouped into four stages. Node names and order come from the export's own `connections` block.*
 
-![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue) ![n8n workflows](https://img.shields.io/badge/n8n-workflow%20JSON-orange) ![Status: retired, reference only](https://img.shields.io/badge/status-retired%2C%20reference%20only-red)
+![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue) ![n8n workflows](https://img.shields.io/badge/n8n-workflow%20JSON-orange) ![Status: retired, reference only](https://img.shields.io/badge/status-retired%2C%20reference%20only-red) [![Buy Me a Coffee](https://raw.githubusercontent.com/casareanderson/.github/main/badges/bmc-yellow.svg)](https://buymeacoffee.com/iamc_tech)
 
 ## Status: read this first
 
